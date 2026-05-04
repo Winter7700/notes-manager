@@ -42,11 +42,14 @@ function App() {
   const fetchNotes = async () => {
     if (!token) return;
 
-    const res = await axios.get(`${API}/notes`, {
-      headers: { Authorization: token }
-    });
-
-    setNotes(res.data);
+    try {
+      const res = await axios.get(`${API}/notes`, {
+        headers: { Authorization: token }
+      });
+      setNotes(res.data);
+    } catch (err) {
+      console.error("Error fetching notes:", err);
+    }
   };
 
   fetchNotes();
