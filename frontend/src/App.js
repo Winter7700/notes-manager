@@ -38,6 +38,7 @@ function App() {
 
   /* ================= NOTES ================= */
 
+ useEffect(() => {
   const fetchNotes = async () => {
     if (!token) return;
 
@@ -48,9 +49,8 @@ function App() {
     setNotes(res.data);
   };
 
-  useEffect(() => {
-    fetchNotes();
-  }, [token]);
+  fetchNotes();
+}, [token]);
 
   const addOrUpdateNote = async () => {
     try {
