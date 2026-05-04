@@ -3,6 +3,9 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 require("dotenv").config();
 
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -12,35 +15,93 @@ mongoose.connect(process.env.MONGO_URI)
 .then(() => console.log("MongoDB Connected"))
 .catch(err => console.log(err));
 
-// Schema
+/* ================= MODELS ================= */
+
+// USER
+const UserSchema = new mongoose.Schema({
+  email: String,
+  password: String
+});
+const User = mongoose.model("User", UserSchema);
+
+// NOTE (UPDATED)
 const NoteSchema = new mongoose.Schema({
   title: String,
   content: String,
-  subject: String
+  subject: String,
+  userId: String
 });
-
 const Note = mongoose.model("Note", NoteSchema);
 
-// Routes
-app.get("/notes", async (req, res) => {
-  const notes = await Note.find();
+/* ================= AUTH MIDDLEWARE ================= */
+
+const auth = (req, res, next) => {
+  const token = req.headers["authorization"];
+  if (!token) return res.status(401).json({ msg: "No token" });
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch {
+    res.status(401).json({ msg: "Invalid token" });
+  }
+};
+
+/* ================= AUTH ROUTES ================= */
+
+app.post("/register", async (req, res) => {
+  const hashed = await bcrypt.hash(req.body.password, 10);
+
+  const user = new User({
+    email: req.body.email,
+    password: hashed
+  });
+
+  await user.save();
+  res.json({ msg: "User registered" });
+});
+
+app.post("/login", async (req, res) => {
+  const user = await User.findOne({ email: req.body.email });
+  if (!user) return res.status(400).json({ msg: "User not found" });
+
+  const valid = await bcrypt.compare(req.body.password, user.password);
+  if (!valid) return res.status(400).json({ msg: "Wrong password" });
+
+  const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
+
+  res.json({ token });
+});
+
+/* ================= NOTE ROUTES ================= */
+
+app.get("/notes", auth, async (req, res) => {
+  const notes = await Note.find({ userId: req.user.id });
   res.json(notes);
 });
 
-app.post("/notes", async (req, res) => {
-  const note = new Note(req.body);
+app.post("/notes", auth, async (req, res) => {
+  const note = new Note({
+    ...req.body,
+    userId: req.user.id
+  });
   await note.save();
   res.json(note);
 });
 
-app.put("/notes/:id", async (req, res) => {
-  const updated = await Note.findByIdAndUpdate(req.params.id, req.body, {new: true});
+app.put("/notes/:id", auth, async (req, res) => {
+  const updated = await Note.findByIdAndUpdate(
+    req.params.id,
+    req.body,
+    { new: true }
+  );
   res.json(updated);
 });
 
-app.delete("/notes/:id", async (req, res) => {
+app.delete("/notes/:id", auth, async (req, res) => {
   await Note.findByIdAndDelete(req.params.id);
-  res.json({msg: "Deleted"});
+  res.json({ msg: "Deleted" });
 });
 
 app.listen(5000, "0.0.0.0", () => {
