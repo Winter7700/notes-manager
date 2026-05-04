@@ -10,21 +10,20 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Connect MongoDB
+/* ================= DB ================= */
+
 mongoose.connect(process.env.MONGO_URI)
-.then(() => console.log("MongoDB Connected"))
-.catch(err => console.log(err));
+  .then(() => console.log("MongoDB Connected"))
+  .catch(err => console.log(err));
 
 /* ================= MODELS ================= */
 
-// USER
 const UserSchema = new mongoose.Schema({
-  email: String,
-  password: String
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true }
 });
 const User = mongoose.model("User", UserSchema);
 
-// NOTE (UPDATED)
 const NoteSchema = new mongoose.Schema({
   title: String,
   content: String,
@@ -36,14 +35,16 @@ const Note = mongoose.model("Note", NoteSchema);
 /* ================= AUTH MIDDLEWARE ================= */
 
 const auth = (req, res, next) => {
-  const token = req.headers["authorization"];
+  const token = req.headers.authorization;
+
   if (!token) return res.status(401).json({ msg: "No token" });
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
     next();
-  } catch {
+  } catch (err) {
+    console.log("JWT ERROR:", err.message);
     res.status(401).json({ msg: "Invalid token" });
   }
 };
@@ -51,30 +52,59 @@ const auth = (req, res, next) => {
 /* ================= AUTH ROUTES ================= */
 
 app.post("/register", async (req, res) => {
-  const hashed = await bcrypt.hash(req.body.password, 10);
+  try {
+    const { email, password } = req.body;
 
-  const user = new User({
-    email: req.body.email,
-    password: hashed
-  });
+    if (!email || !password)
+      return res.status(400).json({ msg: "Missing fields" });
 
-  await user.save();
-  res.json({ msg: "User registered" });
+    const existing = await User.findOne({ email });
+    if (existing)
+      return res.status(400).json({ msg: "User already exists" });
+
+    const hashed = await bcrypt.hash(password, 10);
+
+    const user = new User({ email, password: hashed });
+    await user.save();
+
+    res.json({ msg: "User registered" });
+
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ msg: "Server error" });
+  }
 });
 
 app.post("/login", async (req, res) => {
-  const user = await User.findOne({ email: req.body.email });
-  if (!user) return res.status(400).json({ msg: "User not found" });
+  try {
+    const { email, password } = req.body;
 
-  const valid = await bcrypt.compare(req.body.password, user.password);
-  if (!valid) return res.status(400).json({ msg: "Wrong password" });
+    if (!email || !password)
+      return res.status(400).json({ msg: "Missing fields" });
 
-  const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
+    const user = await User.findOne({ email });
+    if (!user)
+      return res.status(400).json({ msg: "User not found" });
 
-  res.json({ token });
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid)
+      return res.status(400).json({ msg: "Wrong password" });
+
+    const token = jwt.sign(
+      { id: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
+
+    res.json({ token });
+
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ msg: "Server error" });
+  }
 });
 
-/* ================= NOTE ROUTES ================= */
+/* ================= NOTES ================= */
 
 app.get("/notes", auth, async (req, res) => {
   const notes = await Note.find({ userId: req.user.id });
@@ -86,23 +116,17 @@ app.post("/notes", auth, async (req, res) => {
     ...req.body,
     userId: req.user.id
   });
+
   await note.save();
   res.json(note);
-});
-
-app.put("/notes/:id", auth, async (req, res) => {
-  const updated = await Note.findByIdAndUpdate(
-    req.params.id,
-    req.body,
-    { new: true }
-  );
-  res.json(updated);
 });
 
 app.delete("/notes/:id", auth, async (req, res) => {
   await Note.findByIdAndDelete(req.params.id);
   res.json({ msg: "Deleted" });
 });
+
+/* ================= START ================= */
 
 app.listen(5000, "0.0.0.0", () => {
   console.log("Server running");
