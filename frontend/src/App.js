@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 
 const API = process.env.REACT_APP_API_URL;
@@ -36,10 +36,9 @@ function App() {
     setToken("");
   };
 
-  /* ================= NOTES ================= */
+  /* ================= FETCH NOTES (FIXED) ================= */
 
- useEffect(() => {
-  const fetchNotes = async () => {
+  const fetchNotes = useCallback(async () => {
     if (!token) return;
 
     try {
@@ -50,10 +49,13 @@ function App() {
     } catch (err) {
       console.error("Error fetching notes:", err);
     }
-  };
+  }, [token]);
 
-  fetchNotes();
-}, [token]);
+  useEffect(() => {
+    fetchNotes();
+  }, [fetchNotes]);
+
+  /* ================= NOTES ================= */
 
   const addOrUpdateNote = async () => {
     try {
